@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Just Intonation vs Equal Temperament</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .key-white {
+    width: 44px; height: 160px;
+    background: linear-gradient(180deg, #e8e8e8 0%, #fff 100%);
+    border: 1px solid #999;
+    border-radius: 0 0 6px 6px;
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+    transition: background 0.08s;
+    box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+  }
+  .key-white:hover, .key-white.active {
+    background: linear-gradient(180deg, #c8e6ff 0%, #e0f0ff 100%);
+  }
+  .key-black {
+    width: 28px; height: 100px;
+    background: linear-gradient(180deg, #1a1a1a 0%, #333 100%);
+    border-radius: 0 0 5px 5px;
+    cursor: pointer;
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    transition: background 0.08s;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.7);
+  }
+  .key-black:hover, .key-black.active {
+    background: linear-gradient(180deg, #2a4a6a 0%, #1a3050 100%);
+  }
+  .piano-container {
+    position: relative;
+    display: flex;
+    user-select: none;
+  }
+  .white-keys {
+    display: flex;
+    gap: 2px;
+  }
+  .key-label {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: #555;
+    font-weight: bold;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col items-center p-6">
+  <div class="w-full max-w-4xl">
+    <h1 class="text-2xl font-bold text-center mb-1 text-emerald-400">Just Intonation vs Equal Temperament</h1>
+    <p class="text-center text-gray-400 text-sm mb-6">Click keys to hear the difference — JI and ET tuning systems compared</p>
+
+    <!-- Tuning mode selector -->
+    <div class="flex justify-center gap-3 mb-6">
+      <button id="btn-et" onclick="setMode('et')"
+        class="px-5 py-2 rounded-lg font-semibold text-sm transition-colors bg-cyan-600 text-white">
+        Equal Temperament
+      </button>
+      <button id="btn-ji" onclick="setMode('ji')"
+        class="px-5 py-2 rounded-lg font-semibold text-sm transition-colors bg-gray-700 text-gray-300">
+        Just Intonation
+      </button>
+      <button id="btn-both" onclick="setMode('both')"
+        class="px-5 py-2 rounded-lg font-semibold text-sm transition-colors bg-gray-700 text-gray-300">
+        Both (alternating)
+      </button>
+    </div>
+
+    <!-- Piano keyboard -->
+    <div class="flex justify-center mb-8 overflow-x-auto">
+      <div class="piano-container" id="piano"></div>
+    </div>
+
+    <!-- Chord buttons -->
+    <div class="flex justify-center gap-4 mb-8 flex-wrap">
+      <div class="text-xs text-gray-500 self-center">Chords:</div>
+      <button onclick="playChord('P5')" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors">
+        Perfect 5th (C–G)
+      </button>
+      <button onclick="playChord('M3')" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors">
+        Major 3rd (C–E)
+      </button>
+      <button onclick="playChord('M')" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm transition-colors">
+        Major Triad (C–E–G)
+      </button>
+    </div>
+
+    <!-- Reference table -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm border-collapse">
+        <thead>
+          <tr class="bg-gray-800 text-gray-300">
+            <th class="p-2 text-left rounded-tl-lg">Note</th>
+            <th class="p-2 text-center">JI Ratio</th>
+            <th class="p-2 text-center">JI Freq (Hz)</th>
+            <th class="p-2 text-center">ET Freq (Hz)</th>
+            <th class="p-2 text-center">Diff (cents)</th>
+            <th class="p-2 text-left rounded-tr-lg">Deviation</th>
+          </tr>
+        </thead>
+        <tbody id="freq-table"></tbody>
+      </table>
+    </div>
+
+    <!-- Info box -->
+    <div class="mt-6 bg-gray-900 rounded-lg p-4 text-sm text-gray-400 leading-relaxed">
+      <strong class="text-gray-200">What are cents?</strong> A cent is 1/100 of a semitone.
+      Intervals with large cent differences (like the Major 3rd at ~14¢) are clearly audible to trained ears.
+      JI sounds "purer" for single keys/chords; ET allows playing in any key without retuning.
+    </div>
+  </div>
+
+<script>
+let audioCtx = null;
+let mode = 'et';
+
+const C4 = 261.6256;
+
+// Notes: name, JI ratio (from C), semitone
+const notes = [
+  { name: 'C4',  display: 'C',  ji: [1, 1],     semi: 0,  black: false },
+  { name: 'C#4', display: 'C#', ji: [16, 15],   semi: 1,  black: true  },
+  { name: 'D4',  display: 'D',  ji: [9, 8],     semi: 2,  black: false },
+  { name: 'D#4', display: 'D#', ji: [6, 5],     semi: 3,  black: true  },
+  { name: 'E4',  display: 'E',  ji: [5, 4],     semi: 4,  black: false },
+  { name: 'F4',  display: 'F',  ji: [4, 3],     semi: 5,  black: false },
+  { name: 'F#4', display: 'F#', ji: [45, 32],   semi: 6,  black: true  },
+  { name: 'G4',  display: 'G',  ji: [3, 2],     semi: 7,  black: false },
+  { name: 'G#4', display: 'G#', ji: [8, 5],     semi: 8,  black: true  },
+  { name: 'A4',  display: 'A',  ji: [5, 3],     semi: 9,  black: false },
+  { name: 'A#4', display: 'A#', ji: [16, 9],    semi: 10, black: true  },
+  { name: 'B4',  display: 'B',  ji: [15, 8],    semi: 11, black: false },
+];
+
+function jiFreq(n) { return C4 * n.ji[0] / n.ji[1]; }
+function etFreq(n) { return C4 * Math.pow(2, n.semi / 12); }
+function centsDiff(n) { return 1200 * Math.log2(jiFreq(n) / etFreq(n)); }
+
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+function playTone(freq, duration = 0.8, startDelay = 0) {
+  const ctx = getAudioCtx();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = 'triangle';
+  osc.frequency.value = freq;
+
+  const start = ctx.currentTime + startDelay;
+  gain.gain.setValueAtTime(0, start);
+  gain.gain.linearRampToValueAtTime(0.25, start + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+  osc.start(start);
+  osc.stop(start + duration);
+}
+
+function playNote(noteIdx) {
+  const n = notes[noteIdx];
+  if (mode === 'et') {
+    playTone(etFreq(n));
+  } else if (mode === 'ji') {
+    playTone(jiFreq(n));
+  } else {
+    // Both alternating: ET then JI
+    playTone(etFreq(n), 0.6, 0);
+    playTone(jiFreq(n), 0.6, 0.9);
+  }
+  // Flash key
+  const keyEl = document.querySelector(`[data-note="${noteIdx}"]`);
+  if (keyEl) {
+    keyEl.classList.add('active');
+    setTimeout(() => keyEl.classList.remove('active'), 300);
+  }
+}
+
+const chords = {
+  P5: [0, 7],
+  M3: [0, 4],
+  M: [0, 4, 7],
+};
+
+function playChord(name) {
+  const idxs = chords[name];
+  if (mode === 'et') {
+    idxs.forEach(i => playTone(etFreq(notes[i])));
+  } else if (mode === 'ji') {
+    idxs.forEach(i => playTone(jiFreq(notes[i])));
+  } else {
+    // ET first, then JI
+    idxs.forEach(i => playTone(etFreq(notes[i]), 0.8, 0));
+    idxs.forEach(i => playTone(jiFreq(notes[i]), 0.8, 1.1));
+  }
+}
+
+function setMode(m) {
+  mode = m;
+  ['et', 'ji', 'both'].forEach(id => {
+    const btn = document.getElementById('btn-' + id);
+    btn.className = 'px-5 py-2 rounded-lg font-semibold text-sm transition-colors ' +
+      (mode === id ? 'bg-cyan-600 text-white' : 'bg-gray-700 text-gray-300');
+  });
+}
+
+// Build piano keyboard
+function buildPiano() {
+  const container = document.getElementById('piano');
+  const whiteKeys = document.createElement('div');
+  whiteKeys.className = 'white-keys';
+
+  // Create white keys
+  const whiteNotes = notes.filter(n => !n.black);
+  const whitePositions = {};
+  let wIdx = 0;
+  notes.forEach((n, i) => {
+    if (!n.black) { whitePositions[i] = wIdx++; }
+  });
+
+  whiteNotes.forEach((n, wi) => {
+    const nIdx = notes.indexOf(n);
+    const key = document.createElement('div');
+    key.className = 'key-white';
+    key.dataset.note = nIdx;
+    const label = document.createElement('div');
+    label.className = 'key-label';
+    label.textContent = n.display;
+    key.appendChild(label);
+    key.addEventListener('mousedown', () => playNote(nIdx));
+    whiteKeys.appendChild(key);
+  });
+
+  container.appendChild(whiteKeys);
+
+  // Black keys overlay
+  const blackOffsets = { 1: 32, 3: 78, 6: 170, 8: 216, 10: 262 };
+  notes.forEach((n, i) => {
+    if (n.black) {
+      const key = document.createElement('div');
+      key.className = 'key-black';
+      key.dataset.note = i;
+      key.style.left = blackOffsets[i] + 'px';
+      key.addEventListener('mousedown', () => playNote(i));
+      container.appendChild(key);
+    }
+  });
+}
+
+// Build frequency table
+function buildTable() {
+  const tbody = document.getElementById('freq-table');
+  notes.forEach((n, i) => {
+    const ji = jiFreq(n);
+    const et = etFreq(n);
+    const cents = centsDiff(n);
+    const absCents = Math.abs(cents);
+    const barWidth = Math.min(100, absCents / 20 * 100);
+    let barColor = 'bg-green-500';
+    if (absCents > 10) barColor = 'bg-yellow-500';
+    if (absCents > 15) barColor = 'bg-red-500';
+
+    const tr = document.createElement('tr');
+    tr.className = i % 2 === 0 ? 'bg-gray-900' : 'bg-gray-950';
+    if (n.black) tr.className += ' text-gray-400';
+    tr.innerHTML = `
+      <td class="p-2 font-bold ${n.black ? 'text-gray-300' : 'text-white'}">${n.display}</td>
+      <td class="p-2 text-center font-mono text-emerald-300">${n.ji[0]}/${n.ji[1]}</td>
+      <td class="p-2 text-center font-mono text-blue-300">${ji.toFixed(2)}</td>
+      <td class="p-2 text-center font-mono text-orange-300">${et.toFixed(2)}</td>
+      <td class="p-2 text-center font-mono ${absCents < 2 ? 'text-green-400' : absCents < 10 ? 'text-yellow-400' : 'text-red-400'}">
+        ${cents >= 0 ? '+' : ''}${cents.toFixed(1)}¢
+      </td>
+      <td class="p-2">
+        <div class="flex items-center gap-2">
+          <div class="w-32 bg-gray-800 rounded h-2">
+            <div class="${barColor} h-2 rounded" style="width:${barWidth}%"></div>
+          </div>
+          <span class="text-xs text-gray-500">${absCents.toFixed(1)}¢</span>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+buildPiano();
+buildTable();
+</script>
+</body>
+</html>
